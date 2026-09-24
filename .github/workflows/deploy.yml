@@ -25,27 +25,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Sorgt dafür, dass von den beiden Cron-Zeiten nur die durchkommt, die
-  # gerade wirklich 20 Uhr deutscher Zeit ist. Manuelle Starts und Pushes
-  # laufen immer durch.
+  # Sorgt dafür, dass von den beiden Cron-Zeiten nur die passende durchkommt:
+  # der 18-UTC-Cron in der Sommerzeit, der 19-UTC-Cron in der Winterzeit.
+  # Wichtig: Geprüft wird NICHT die aktuelle Uhrzeit, denn GitHub startet
+  # geplante Läufe oft stundenlang verspätet – dann würde jeder Lauf
+  # übersprungen. Manuelle Starts und Pushes laufen immer durch.
   zeitfenster-pruefen:
     runs-on: ubuntu-latest
     outputs:
       ausfuehren: ${{ steps.pruefung.outputs.ausfuehren }}
     steps:
       - id: pruefung
+        env:
+          EREIGNIS: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
         run: |
-          if [ "${{ github.event_name }}" != "schedule" ]; then
+          if [ "$EREIGNIS" != "schedule" ]; then
             echo "Manueller Start oder Push – wird ausgeführt."
             echo "ausfuehren=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          STUNDE=$(TZ=Europe/Berlin date +%H)
-          if [ "$STUNDE" = "20" ]; then
-            echo "Es ist $STUNDE Uhr in Berlin – wird ausgeführt."
+          # +0200 = Sommerzeit, +0100 = Winterzeit
+          OFFSET=$(TZ=Europe/Berlin date +%z)
+          if [ "$OFFSET" = "+0200" ]; then PASSEND="0 18 * * 1"; else PASSEND="0 19 * * 1"; fi
+          if [ "$CRON" = "$PASSEND" ]; then
+            echo "Cron '$CRON' passt zur Berliner Zeitzone ($OFFSET) – wird ausgeführt."
             echo "ausfuehren=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Es ist $STUNDE Uhr in Berlin – dieser Lauf wird übersprungen."
+            echo "Cron '$CRON' ist der Doppel-Eintrag für $OFFSET – wird übersprungen."
             echo "ausfuehren=false" >> "$GITHUB_OUTPUT"
           fi
 
